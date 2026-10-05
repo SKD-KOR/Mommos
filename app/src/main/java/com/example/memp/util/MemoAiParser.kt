@@ -170,7 +170,7 @@ object MemoAiParser {
         }
     }
 
-    private fun extractDateTime(text: String): ParsedTimeInfo? {
+    fun extractDateTime(text: String): ParsedTimeInfo? {
         val cal = Calendar.getInstance()
         var hasExplicitDate = false
         var hasTime = false

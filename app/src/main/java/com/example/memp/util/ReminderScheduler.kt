@@ -9,6 +9,27 @@ import com.example.memp.receiver.ReminderReceiver
 
 object ReminderScheduler {
 
+    private val ALL_OFFSETS = listOf(60, 30, 10, 5, 1, 0)
+
+    fun cancelReminders(context: Context, memoId: Long) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+        for (minutesBefore in ALL_OFFSETS) {
+            val intent = Intent(context, ReminderReceiver::class.java)
+            val requestCode = (memoId.toString() + minutesBefore.toString()).hashCode()
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (pendingIntent != null) {
+                alarmManager.cancel(pendingIntent)
+                pendingIntent.cancel()
+            }
+        }
+    }
+
     fun scheduleStepwiseReminders(
         context: Context,
         memoId: Long,
@@ -16,6 +37,9 @@ object ReminderScheduler {
         contentText: String,
         targetTimeMillis: Long
     ) {
+        // 기존 예약된 알림 취소 후 재스케줄링
+        cancelReminders(context, memoId)
+
         val now = System.currentTimeMillis()
         val diffMinutes = (targetTimeMillis - now) / (1000 * 60)
 

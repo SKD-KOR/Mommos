@@ -143,7 +143,7 @@ fun MemoListScreen(
             ) {
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // 헤더 영역: 고정 높이 틀을 없애고 wrapContentHeight 및 충분한 lineHeight 적용으로 텍스트 잘림 방지
+                // 헤더 영역: 고정 높이 제거
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -170,7 +170,7 @@ fun MemoListScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // 검색 바: 고정 높이 제거, defaultMinSize 및 ellipsis 처리
+                // 검색 바
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { viewModel.updateSearchQuery(it) },
@@ -270,7 +270,12 @@ fun MemoListScreen(
                                 },
                                 onTogglePin = { viewModel.togglePin(memo) },
                                 onToggleFavorite = { viewModel.toggleFavorite(memo) },
-                                onDelete = { viewModel.deleteMemo(memo.id) }
+                                onDelete = {
+                                    // 1. 메모 삭제 시 해당 메모에 예약된 모든 알림 즉시 취소
+                                    ReminderScheduler.cancelReminders(context, memo.id)
+                                    viewModel.deleteMemo(memo.id)
+                                    Toast.makeText(context, "메모가 삭제되고 예약된 알림이 취소되었습니다.", Toast.LENGTH_SHORT).show()
+                                }
                             )
                         }
                     }
@@ -298,6 +303,7 @@ fun MemoListScreen(
                             }
                         }
                     } else {
+                        val memoId = editingMemo!!.id
                         viewModel.updateMemo(
                             editingMemo!!.copy(
                                 title = title,
@@ -305,15 +311,18 @@ fun MemoListScreen(
                                 category = category
                             )
                         )
+                        // 3 & 4. 수정 완료 시 기존 알림 취소 후 변경/파싱된 알림 시간으로 재스케줄링
                         if (targetTime != null) {
                             ReminderScheduler.scheduleStepwiseReminders(
                                 context = context,
-                                memoId = editingMemo!!.id,
+                                memoId = memoId,
                                 title = title,
                                 contentText = content,
                                 targetTimeMillis = targetTime
                             )
-                            Toast.makeText(context, "스마트 알림이 갱신되었습니다! ⏰", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "스마트 알림이 재등록되었습니다! ⏰", Toast.LENGTH_SHORT).show()
+                        } else {
+                            ReminderScheduler.cancelReminders(context, memoId)
                         }
                     }
                     showBottomSheet = false
@@ -545,6 +554,32 @@ fun MemoEditBottomSheet(
     val speechResult by sttManager.speechResult.collectAsState()
     val errorMessage by sttManager.errorMessage.collectAsState()
 
+    // 2. 수정(Edit) 모드로 진입 시, 기존 메모 내용에서 감지된 알림 시간이 있다면 'AI 감지 알림' 카드 표시
+    LaunchedEffect(memo) {
+        if (memo != null) {
+            val parsedResult = MemoAiParser.parse("${memo.title} ${memo.content}")
+            if (parsedResult.hasReminder) {
+                reminderString = parsedResult.reminderDisplayString
+                targetTimeMillis = parsedResult.targetTimeMillis
+            }
+        }
+    }
+
+    // 4. 직접 타이핑 수정을 수행하는 경우: 사용자가 입력 중인 글자나 카테고리는 강제로 바꾸지 않고 시간 정보만 실시간 파싱하여 동기화
+    LaunchedEffect(title, content) {
+        // 음성 결과로 입력된 경우가 아닐 때만 직접 입력 실시간 알림 파싱 적용
+        if (speechResult.isBlank()) {
+            val parsedResult = MemoAiParser.parse("$title $content")
+            if (parsedResult.hasReminder) {
+                reminderString = parsedResult.reminderDisplayString
+                targetTimeMillis = parsedResult.targetTimeMillis
+            } else {
+                reminderString = null
+                targetTimeMillis = null
+            }
+        }
+    }
+
     // 오디오 녹음 권한 요청 런치
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -617,7 +652,7 @@ fun MemoEditBottomSheet(
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) {
-        // 세로 스크롤 및 키보드 패딩 필수 추가로 하단 필드 찌그러짐 방지
+        // 세로 스크롤 및 키보드 패딩 필수 추가
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -658,7 +693,7 @@ fun MemoEditBottomSheet(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 대형 STT 음성 입력 버튼 (고정 높이 제거, defaultMinSize 적용)
+            // 대형 STT 음성 입력 버튼
             Surface(
                 onClick = {
                     if (isListening) {
@@ -707,7 +742,7 @@ fun MemoEditBottomSheet(
                 }
             }
 
-            // AI 추출 알림 시간 배지
+            // AI 추출 알림 시간 배지 (수정 모드에서도 유지/표시)
             AnimatedVisibility(
                 visible = reminderString != null,
                 enter = expandVertically(),
@@ -743,7 +778,7 @@ fun MemoEditBottomSheet(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 카테고리 선택 칩 그룹 (가로 스크롤 보장)
+            // 카테고리 선택 칩 그룹
             Text(text = "카테고리 선택", fontSize = 17.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(6.dp))
             Row(
@@ -770,7 +805,7 @@ fun MemoEditBottomSheet(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 제목 입력 (고정 높이 제거)
+            // 제목 입력 (직접 입력 시 입력 내용 보존)
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
@@ -799,7 +834,7 @@ fun MemoEditBottomSheet(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 내용 및 할 일 입력 (고정 높이 제거, minLines 가변 높이 및 스크롤로 짓눌림 완벽 방지)
+            // 내용 및 할 일 입력 (직접 입력 시 입력 내용 보존)
             OutlinedTextField(
                 value = content,
                 onValueChange = { content = it },
@@ -819,11 +854,13 @@ fun MemoEditBottomSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // 저장 버튼 (defaultMinSize 적용)
+            // 저장 버튼
             Button(
                 onClick = {
                     sttManager.stopListening()
-                    onSave(title, content, selectedCategory, targetTimeMillis)
+                    // 저장 시 최종 알림 시간 다시 한 번 검증 파싱
+                    val finalParsedTime = MemoAiParser.extractDateTime("$title $content")?.targetTimeMillis ?: targetTimeMillis
+                    onSave(title, content, selectedCategory, finalParsedTime)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
