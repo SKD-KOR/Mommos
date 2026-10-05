@@ -107,33 +107,6 @@ fun MemoListScreen(
         Scaffold(
             modifier = modifier.fillMaxSize(),
             containerColor = MaterialTheme.colorScheme.surface,
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(
-                                text = "맘모스",
-                                fontSize = 28.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "총 ${memos.size}개의 메모가 있어요",
-                                fontSize = 15.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                )
-            },
             floatingActionButton = {
                 ExtendedFloatingActionButton(
                     onClick = {
@@ -166,9 +139,36 @@ fun MemoListScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = 20.dp)
             ) {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // 헤더 영역: 고정 높이 틀을 없애고 wrapContentHeight 및 충분한 lineHeight 적용으로 텍스트 잘림 방지
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight()
+                ) {
+                    Text(
+                        text = "맘모스",
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        lineHeight = 38.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "총 ${memos.size}개의 메모가 있어요",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 22.sp,
+                        softWrap = true,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // 검색 바: 고정 높이 제거, defaultMinSize 및 ellipsis 처리
                 OutlinedTextField(

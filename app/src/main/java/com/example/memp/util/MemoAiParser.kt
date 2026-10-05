@@ -42,7 +42,7 @@ object MemoAiParser {
         val timeInfo = extractDateTime(trimmed)
         val rawTodoList = extractTodoList(trimmed)
 
-        // 시간 정보가 추출된 경우 주요 할 일 문두에 시간 수식어 결합 ("오후 3시 36분에 약 먹기")
+        // 시간 정보가 추출된 경우 주요 할 일 문두에 시간 수식어 결합 ("오후 10시 30분에 약 먹기")
         val formattedTodoList = if (timeInfo != null) {
             rawTodoList.map { item ->
                 if (!item.startsWith(timeInfo.shortTimeLabel)) {
@@ -72,18 +72,38 @@ object MemoAiParser {
 
     private fun extractCategory(text: String): String {
         return when {
-            text.containsAny("병원", "약", "의사", "진료", "건강", "치과", "안과", "주사", "검진") -> "건강"
-            text.containsAny("마트", "사야", "사고", "장보기", "우유", "계란", "고기", "구입", "구매", "시장", "과일") -> "장보기"
-            text.containsAny("친구", "모임", "동창", "약속", "만나", "점심", "저녁", "식사", "생일", "밥") -> "모임"
-            text.containsAny("은행", "송금", "이체", "세금", "공과금", "돈", "통장", "어플", "앱", "카카오페이") -> "금융"
+            text.containsAny(
+                "약", "병원", "내과", "안과", "치과", "이비인후과", "피부과", "정형외과",
+                "처방", "주사", "진료", "혈압", "당뇨", "영양제", "비타민", "운동", "산책",
+                "물 마시기", "의사", "검진", "건강", "치료", "검사", "한의원", "복용"
+            ) -> "건강"
+
+            text.containsAny(
+                "사기", "사다", "사야", "사고", "마트", "시장", "다이소", "슈퍼",
+                "우유", "계란", "달걀", "반찬", "식자재", "주문", "구입", "구매",
+                "고기", "과일", "야채", "채소", "장보기", "쇼핑", "빵", "두부"
+            ) -> "장보기"
+
+            text.containsAny(
+                "친구", "모임", "동창", "계모임", "점심 약속", "저녁 약속", "약속",
+                "결혼식", "장례식", "통화", "만나기", "만나", "회식", "생일", "식사",
+                "밥", "동호회", "동호인", "부부모임"
+            ) -> "모임"
+
+            text.containsAny(
+                "은행", "송금", "이체", "통장", "공과금", "납부", "세금", "이자",
+                "카드값", "출금", "입금", "돈", "어플", "앱", "카카오페이", "계좌",
+                "금융", "대출", "적금", "예금"
+            ) -> "금융"
+
             else -> "일반"
         }
     }
 
     private fun extractTodoList(text: String): List<String> {
-        // 날짜/시간 수식어 및 시간 조사("쯤에", "경에", "에" 등) 완전 제거
+        // 날짜/시간 수식어 및 시간 조사("쯤에", "경에", "에", "반에" 등) 완전 제거
         val timeCleaned = text.replace(
-            Regex("(오늘|내일|모레|다음\\s*주|이번\\s*주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|\\d{1,2}월\\s*\\d{1,2}일)?\\s*(오전|오후|아침|점심|저녁|밤|새벽|낮)?\\s*\\d{1,2}시(\\s*\\d{1,2}분)?\\s*(쯤에|경에|정도에|쯤|경|정도|에|날에)?"),
+            Regex("(오늘|내일|모레|다음\\s*주|이번\\s*주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|\\d{1,2}월\\s*\\d{1,2}일)?\\s*(오전|오후|아침|점심|저녁|밤|새벽|낮)?\\s*\\d{1,2}\\s*시\\s*(?:\\d{1,2}\\s*분|반)?\\s*(쯤에|경에|정도에|쯤|경|정도|에|날에)?"),
             ""
         ).replace(
             Regex("^(오늘|내일|모레|다음\\s*주|이번\\s*주)\\s*(에|날에)?"),
@@ -120,7 +140,7 @@ object MemoAiParser {
         }
 
         // 2. 불필요한 목적격/장소 조사 정리 ("약을" -> "약", "어플을" -> "어플", "병원에" -> "병원")
-        text = text.replace(Regex("^(.*?[가-힣]+)(을|를|에|도|에게|한테|으로|로)$")) { matchResult ->
+        text = text.replace(Regex("^(.*?[가-힣]+)[을를에도]$")) { matchResult ->
             matchResult.groupValues[1]
         }.trim()
 
@@ -194,20 +214,21 @@ object MemoAiParser {
             }
         }
 
-        // 시간 파싱 (예: "3시 36분", "오전 10시", "오후 3시 30분")
-        val timeRegex = Regex("(\\d{1,2})시(\\s*(\\d{1,2})분)?")
+        // 시간 파싱 (예: "10시 반", "3시 36분", "오전 10시", "오후 3시 30분")
+        val timeRegex = Regex("(\\d{1,2})\\s*시\\s*(?:(\\d{1,2})\\s*분|반)?")
         val match = timeRegex.find(text)
         if (match != null) {
             hasTime = true
             val rawHour = match.groupValues[1].toIntOrNull() ?: 9
-            val minute = match.groupValues[3].toIntOrNull() ?: 0
+            val minuteGroup = match.groupValues[2]
+            val minute = when {
+                match.value.contains("반") -> 30
+                minuteGroup.isNotBlank() -> minuteGroup.toIntOrNull() ?: 0
+                else -> 0
+            }
 
-            val hour = determineHour(rawHour, text, cal, hasExplicitDate)
-
-            cal.set(Calendar.HOUR_OF_DAY, hour)
-            cal.set(Calendar.MINUTE, minute)
-            cal.set(Calendar.SECOND, 0)
-            cal.set(Calendar.MILLISECOND, 0)
+            val targetCal = determineTargetCalendar(rawHour, minute, text, cal, hasExplicitDate)
+            cal.timeInMillis = targetCal.timeInMillis
         } else if (hasExplicitDate) {
             cal.set(Calendar.HOUR_OF_DAY, 9)
             cal.set(Calendar.MINUTE, 0)
@@ -232,48 +253,96 @@ object MemoAiParser {
         )
     }
 
-    private fun determineHour(rawHour: Int, text: String, cal: Calendar, hasExplicitDate: Boolean): Int {
+    private fun determineTargetCalendar(
+        rawHour: Int,
+        minute: Int,
+        text: String,
+        baseCal: Calendar,
+        hasExplicitDate: Boolean
+    ): Calendar {
         val isMorningExplicit = text.containsAny("오전", "아침", "새벽")
         val isAfternoonExplicit = text.containsAny("오후", "저녁", "밤", "점심", "낮")
 
-        if (isMorningExplicit) {
-            return if (rawHour == 12) 0 else rawHour
-        }
-
-        if (isAfternoonExplicit) {
-            return if (rawHour < 12) rawHour + 12 else rawHour
-        }
-
-        if (rawHour >= 12) return rawHour
-
         val now = Calendar.getInstance()
 
-        if (isSameDay(cal, now)) {
-            val pmHour = rawHour + 12
-            val amHour = rawHour
+        // 1) "오전/아침/새벽" 명시된 경우
+        if (isMorningExplicit) {
+            val amHour = if (rawHour == 12) 0 else rawHour
+            val cand = baseCal.clone() as Calendar
+            cand.set(Calendar.HOUR_OF_DAY, amHour)
+            cand.set(Calendar.MINUTE, minute)
+            cand.set(Calendar.SECOND, 0)
+            cand.set(Calendar.MILLISECOND, 0)
 
-            val pmTime = cal.clone() as Calendar
-            pmTime.set(Calendar.HOUR_OF_DAY, pmHour)
+            if (!hasExplicitDate && isSameDay(cand, now) && !cand.after(now)) {
+                cand.add(Calendar.DAY_OF_YEAR, 1)
+            }
+            return cand
+        }
 
-            if (pmTime.after(now)) {
-                return pmHour
+        // 2) "오후/저녁/밤/점심/낮" 명시된 경우
+        if (isAfternoonExplicit) {
+            val pmHour = if (rawHour < 12) rawHour + 12 else rawHour
+            val cand = baseCal.clone() as Calendar
+            cand.set(Calendar.HOUR_OF_DAY, pmHour)
+            cand.set(Calendar.MINUTE, minute)
+            cand.set(Calendar.SECOND, 0)
+            cand.set(Calendar.MILLISECOND, 0)
+
+            if (!hasExplicitDate && isSameDay(cand, now) && !cand.after(now)) {
+                cand.add(Calendar.DAY_OF_YEAR, 1)
+            }
+            return cand
+        }
+
+        // 3) 오전/오후 언급이 없는 경우
+        if (rawHour >= 12) {
+            val cand = baseCal.clone() as Calendar
+            cand.set(Calendar.HOUR_OF_DAY, rawHour)
+            cand.set(Calendar.MINUTE, minute)
+            cand.set(Calendar.SECOND, 0)
+            cand.set(Calendar.MILLISECOND, 0)
+
+            if (!hasExplicitDate && isSameDay(cand, now) && !cand.after(now)) {
+                cand.add(Calendar.DAY_OF_YEAR, 1)
+            }
+            return cand
+        }
+
+        // rawHour가 1~11인 경우
+        val pmHour = rawHour + 12
+        val amHour = rawHour
+
+        val pmCand = baseCal.clone() as Calendar
+        pmCand.set(Calendar.HOUR_OF_DAY, pmHour)
+        pmCand.set(Calendar.MINUTE, minute)
+        pmCand.set(Calendar.SECOND, 0)
+        pmCand.set(Calendar.MILLISECOND, 0)
+
+        val amCand = baseCal.clone() as Calendar
+        amCand.set(Calendar.HOUR_OF_DAY, amHour)
+        amCand.set(Calendar.MINUTE, minute)
+        amCand.set(Calendar.SECOND, 0)
+        amCand.set(Calendar.MILLISECOND, 0)
+
+        if (isSameDay(baseCal, now)) {
+            // 오늘인 경우: 현재 시점(now) 이후의 미래 시점 중 가장 빠른 후보 선택
+            if (pmCand.after(now)) {
+                return pmCand
             }
 
-            val amTime = cal.clone() as Calendar
-            amTime.set(Calendar.HOUR_OF_DAY, amHour)
-
-            if (amTime.after(now)) {
-                return amHour
+            if (amCand.after(now)) {
+                return amCand
             }
 
             if (hasExplicitDate && text.contains("오늘")) {
-                return pmHour
+                return pmCand
             } else {
-                cal.add(Calendar.DAY_OF_YEAR, 1)
-                return pmHour
+                amCand.add(Calendar.DAY_OF_YEAR, 1)
+                return amCand
             }
         } else {
-            return if (rawHour in 1..11) rawHour + 12 else rawHour
+            return pmCand
         }
     }
 
