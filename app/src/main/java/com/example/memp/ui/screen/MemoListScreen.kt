@@ -17,12 +17,15 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
@@ -43,9 +46,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -73,225 +78,248 @@ fun MemoListScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val memos by viewModel.memos.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    
-    var selectedFilter by remember { mutableStateOf(MemoFilterTab.ALL) }
-    var showBottomSheet by remember { mutableStateOf(false) }
-    var editingMemo by remember { mutableStateOf<MemoEntity?>(null) }
+    val currentDensity = LocalDensity.current
 
-    val filteredMemos = remember(memos, selectedFilter) {
-        when (selectedFilter) {
-            MemoFilterTab.ALL -> memos
-            MemoFilterTab.PINNED -> memos.filter { it.isPinned }
-            MemoFilterTab.FAVORITE -> memos.filter { it.isFavorite }
+    // 시니어 사용자의 과도한 시스템 폰트 스케일(2.0x 이상) 시 레이아웃 파괴 방지를 위해 fontScale 최대 1.35x 상한 제한
+    val cappedFontScale = currentDensity.fontScale.coerceAtMost(1.35f)
+
+    CompositionLocalProvider(
+        LocalDensity provides Density(
+            density = currentDensity.density,
+            fontScale = cappedFontScale
+        )
+    ) {
+        val memos by viewModel.memos.collectAsState()
+        val searchQuery by viewModel.searchQuery.collectAsState()
+
+        var selectedFilter by remember { mutableStateOf(MemoFilterTab.ALL) }
+        var showBottomSheet by remember { mutableStateOf(false) }
+        var editingMemo by remember { mutableStateOf<MemoEntity?>(null) }
+
+        val filteredMemos = remember(memos, selectedFilter) {
+            when (selectedFilter) {
+                MemoFilterTab.ALL -> memos
+                MemoFilterTab.PINNED -> memos.filter { it.isPinned }
+                MemoFilterTab.FAVORITE -> memos.filter { it.isFavorite }
+            }
         }
-    }
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.surface,
-        topBar = {
-            TopAppBar(
-                title = { 
-                    Column {
-                        Text(
-                            text = "맘모스", 
-                            fontSize = 30.sp, 
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+        Scaffold(
+            modifier = modifier.fillMaxSize(),
+            containerColor = MaterialTheme.colorScheme.surface,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                text = "맘모스",
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "총 ${memos.size}개의 메모가 있어요",
+                                fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            },
+            floatingActionButton = {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        editingMemo = null
+                        showBottomSheet = true
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "새 메모 작성",
+                            modifier = Modifier.size(32.dp)
                         )
+                    },
+                    text = {
                         Text(
-                            text = "총 ${memos.size}개의 메모가 있어요", 
-                            fontSize = 16.sp, 
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "새 메모",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = RoundedCornerShape(28.dp),
+                    elevation = FloatingActionButtonDefaults.elevation(8.dp),
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 16.dp)
+            ) {
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // 검색 바: 고정 높이 제거, defaultMinSize 및 ellipsis 처리
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { viewModel.updateSearchQuery(it) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 56.dp),
+                    placeholder = {
+                        Text(
+                            text = "찾으실 메모를 입력하세요...",
+                            fontSize = 18.sp,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "검색",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.updateSearchQuery("") }) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "검색 지우기",
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
+                    },
+                    textStyle = TextStyle(fontSize = 20.sp),
+                    shape = CircleShape,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = Color.Transparent
+                    ),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 필터 칩 목록: 가로 스크롤 보장
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = 2.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(MemoFilterTab.entries.toTypedArray()) { filter ->
+                        val isSelected = selectedFilter == filter
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedFilter = filter },
+                            label = {
+                                Text(
+                                    text = filter.label,
+                                    fontSize = 17.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ),
+                            shape = RoundedCornerShape(16.dp),
+                            border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                            modifier = Modifier.defaultMinSize(minHeight = 44.dp)
                         )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-            )
-        },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = {
-                    editingMemo = null
-                    showBottomSheet = true
-                },
-                icon = { 
-                    Icon(
-                        imageVector = Icons.Default.Add, 
-                        contentDescription = "새 메모 작성",
-                        modifier = Modifier.size(32.dp)
-                    ) 
-                },
-                text = { 
-                    Text(
-                        text = "새 메모", 
-                        fontSize = 22.sp, 
-                        fontWeight = FontWeight.Bold
-                    ) 
-                },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = RoundedCornerShape(28.dp),
-                elevation = FloatingActionButtonDefaults.elevation(8.dp),
-                modifier = Modifier.padding(12.dp)
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 20.dp)
-        ) {
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            // 미니멀 검색 바
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { viewModel.updateSearchQuery(it) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 60.dp),
-                placeholder = { 
-                    Text("찾으실 메모를 입력하세요...", fontSize = 20.sp, color = MaterialTheme.colorScheme.outline) 
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search, 
-                        contentDescription = "검색", 
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 메모 목록 및 Empty State
+                if (filteredMemos.isEmpty()) {
+                    EmptyMemoView(
+                        filter = selectedFilter,
+                        hasSearchQuery = searchQuery.isNotEmpty()
                     )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.updateSearchQuery("") }) {
-                            Icon(
-                                imageVector = Icons.Default.Clear, 
-                                contentDescription = "검색 지우기",
-                                modifier = Modifier.size(28.dp)
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 110.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        items(filteredMemos, key = { it.id }) { memo ->
+                            MemoCardItem(
+                                memo = memo,
+                                onClick = {
+                                    editingMemo = memo
+                                    showBottomSheet = true
+                                },
+                                onTogglePin = { viewModel.togglePin(memo) },
+                                onToggleFavorite = { viewModel.toggleFavorite(memo) },
+                                onDelete = { viewModel.deleteMemo(memo.id) }
                             )
                         }
                     }
-                },
-                textStyle = TextStyle(fontSize = 22.sp),
-                shape = CircleShape,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = Color.Transparent
-                ),
-                singleLine = true
-            )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // 필터 칩 목록
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(MemoFilterTab.entries.toTypedArray()) { filter ->
-                    val isSelected = selectedFilter == filter
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { selectedFilter = filter },
-                        label = { 
-                            Text(
-                                text = filter.label, 
-                                fontSize = 18.sp, 
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            ) 
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        ),
-                        shape = RoundedCornerShape(16.dp),
-                        border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
-                        modifier = Modifier.height(44.dp)
-                    )
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // 메모 목록 및 Empty State
-            if (filteredMemos.isEmpty()) {
-                EmptyMemoView(
-                    filter = selectedFilter,
-                    hasSearchQuery = searchQuery.isNotEmpty()
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 110.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    items(filteredMemos, key = { it.id }) { memo ->
-                        MemoCardItem(
-                            memo = memo,
-                            onClick = {
-                                editingMemo = memo
-                                showBottomSheet = true
-                            },
-                            onTogglePin = { viewModel.togglePin(memo) },
-                            onToggleFavorite = { viewModel.toggleFavorite(memo) },
-                            onDelete = { viewModel.deleteMemo(memo.id) }
-                        )
-                    }
                 }
             }
         }
-    }
 
-    // 모던 바텀 시트 (STT, AI 분석, AlarmManager 단계별 알림 연동)
-    if (showBottomSheet) {
-        MemoEditBottomSheet(
-            memo = editingMemo,
-            onDismiss = { showBottomSheet = false },
-            onSave = { title, content, category, targetTime ->
-                if (editingMemo == null) {
-                    viewModel.addMemo(title = title, content = content, category = category) { insertedId ->
+        // 모던 바텀 시트
+        if (showBottomSheet) {
+            MemoEditBottomSheet(
+                memo = editingMemo,
+                onDismiss = { showBottomSheet = false },
+                onSave = { title, content, category, targetTime ->
+                    if (editingMemo == null) {
+                        viewModel.addMemo(title = title, content = content, category = category) { insertedId ->
+                            if (targetTime != null) {
+                                ReminderScheduler.scheduleStepwiseReminders(
+                                    context = context,
+                                    memoId = insertedId,
+                                    title = title,
+                                    contentText = content,
+                                    targetTimeMillis = targetTime
+                                )
+                                Toast.makeText(context, "스마트 사전 알림이 설정되었습니다! ⏰", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        viewModel.updateMemo(
+                            editingMemo!!.copy(
+                                title = title,
+                                content = content,
+                                category = category
+                            )
+                        )
                         if (targetTime != null) {
                             ReminderScheduler.scheduleStepwiseReminders(
                                 context = context,
-                                memoId = insertedId,
+                                memoId = editingMemo!!.id,
                                 title = title,
                                 contentText = content,
                                 targetTimeMillis = targetTime
                             )
-                            Toast.makeText(context, "스마트 사전 알림이 설정되었습니다! ⏰", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "스마트 알림이 갱신되었습니다! ⏰", Toast.LENGTH_SHORT).show()
                         }
                     }
-                } else {
-                    viewModel.updateMemo(
-                        editingMemo!!.copy(
-                            title = title,
-                            content = content,
-                            category = category
-                        )
-                    )
-                    if (targetTime != null) {
-                        ReminderScheduler.scheduleStepwiseReminders(
-                            context = context,
-                            memoId = editingMemo!!.id,
-                            title = title,
-                            contentText = content,
-                            targetTimeMillis = targetTime
-                        )
-                        Toast.makeText(context, "스마트 알림이 갱신되었습니다! ⏰", Toast.LENGTH_SHORT).show()
-                    }
+                    showBottomSheet = false
                 }
-                showBottomSheet = false
-            }
-        )
+            )
+        }
     }
 }
 
@@ -310,13 +338,13 @@ fun MemoCardItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(22.dp))
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (memo.isPinned) 
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) 
-            else 
+            containerColor = if (memo.isPinned)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            else
                 MaterialTheme.colorScheme.surfaceContainerHigh
         ),
         elevation = CardDefaults.cardElevation(
@@ -325,7 +353,7 @@ fun MemoCardItem(
         border = if (memo.isPinned) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)) else null
     ) {
         Column(
-            modifier = Modifier.padding(22.dp)
+            modifier = Modifier.padding(18.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -340,9 +368,9 @@ fun MemoCardItem(
                     ) {
                         Text(
                             text = "📌 상단 고정됨",
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 } else {
@@ -353,9 +381,9 @@ fun MemoCardItem(
                     ) {
                         Text(
                             text = memo.category,
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -363,43 +391,43 @@ fun MemoCardItem(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = onTogglePin,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(44.dp)
                     ) {
                         Icon(
                             imageVector = if (memo.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                             contentDescription = "상단 고정",
-                            modifier = Modifier.size(28.dp),
+                            modifier = Modifier.size(26.dp),
                             tint = if (memo.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                         )
                     }
-                    
+
                     IconButton(
                         onClick = onToggleFavorite,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(44.dp)
                     ) {
                         Icon(
                             imageVector = if (memo.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                             contentDescription = "중요 표시",
-                            modifier = Modifier.size(28.dp),
+                            modifier = Modifier.size(26.dp),
                             tint = if (memo.isFavorite) Color(0xFFE53935) else MaterialTheme.colorScheme.outline
                         )
                     }
 
                     IconButton(
                         onClick = onDelete,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(44.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.DeleteOutline,
                             contentDescription = "메모 삭제",
-                            modifier = Modifier.size(28.dp),
+                            modifier = Modifier.size(26.dp),
                             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             AutoSizeText(
                 text = memo.title.ifEmpty { "제목 없음" },
@@ -407,22 +435,22 @@ fun MemoCardItem(
                 fontWeight = FontWeight.Bold
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
                 text = memo.content,
-                fontSize = 20.sp,
+                fontSize = 19.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 30.sp
+                lineHeight = 28.sp
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             Text(
                 text = formattedDate,
-                fontSize = 15.sp,
+                fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.outline,
                 fontWeight = FontWeight.Normal
             )
@@ -437,7 +465,7 @@ fun AutoSizeText(
     color: Color = Color.Unspecified,
     fontWeight: FontWeight? = null
 ) {
-    var textSize by remember { mutableStateOf(26.sp) }
+    var textSize by remember { mutableStateOf(24.sp) }
 
     Text(
         text = text,
@@ -448,7 +476,7 @@ fun AutoSizeText(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         onTextLayout = { textLayoutResult ->
-            if (textLayoutResult.hasVisualOverflow && textSize > 20.sp) {
+            if (textLayoutResult.hasVisualOverflow && textSize > 18.sp) {
                 textSize *= 0.9f
             }
         }
@@ -469,29 +497,29 @@ fun EmptyMemoView(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(32.dp)
+            modifier = Modifier.padding(24.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.EditNote,
                 contentDescription = null,
-                modifier = Modifier.size(96.dp),
+                modifier = Modifier.size(80.dp),
                 tint = MaterialTheme.colorScheme.outlineVariant
             )
-            Spacer(modifier = Modifier.height(16.dp))
-            
+            Spacer(modifier = Modifier.height(14.dp))
+
             val emptyMessage = when {
                 hasSearchQuery -> "검색 결과와 일치하는 메모가 없습니다."
                 filter == MemoFilterTab.PINNED -> "상단 고정된 메모가 없습니다."
                 filter == MemoFilterTab.FAVORITE -> "중요 표시된 메모가 없습니다."
                 else -> "작성된 메모가 없습니다.\n아래 '+ 새 메모' 버튼을 눌러보세요!"
             }
-            
+
             Text(
                 text = emptyMessage,
-                fontSize = 22.sp,
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.outline,
-                lineHeight = 32.sp
+                lineHeight = 30.sp
             )
         }
     }
@@ -572,7 +600,7 @@ fun MemoEditBottomSheet(
     val infiniteTransition = rememberInfiniteTransition(label = "micPulse")
     val micScale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = 1.25f,
+        targetValue = 1.2f,
         animationSpec = infiniteRepeatable(
             animation = tween(600, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
@@ -589,11 +617,14 @@ fun MemoEditBottomSheet(
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) {
+        // 세로 스크롤 및 키보드 패딩 필수 추가로 하단 필드 찌그러짐 방지
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 36.dp)
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp)
         ) {
             // 헤더
             Row(
@@ -603,26 +634,31 @@ fun MemoEditBottomSheet(
             ) {
                 Text(
                     text = if (memo == null) "새 메모 작성" else "메모 수정하기",
-                    fontSize = 26.sp,
+                    fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                
-                IconButton(onClick = {
-                    sttManager.stopListening()
-                    onDismiss()
-                }, modifier = Modifier.size(48.dp)) {
+
+                IconButton(
+                    onClick = {
+                        sttManager.stopListening()
+                        onDismiss()
+                    },
+                    modifier = Modifier.size(44.dp)
+                ) {
                     Icon(
-                        imageVector = Icons.Default.Clear, 
+                        imageVector = Icons.Default.Clear,
                         contentDescription = "닫기",
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // 대형 STT 음성 입력 버튼
+            // 대형 STT 음성 입력 버튼 (고정 높이 제거, defaultMinSize 적용)
             Surface(
                 onClick = {
                     if (isListening) {
@@ -640,14 +676,16 @@ fun MemoEditBottomSheet(
                         }
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 56.dp),
                 shape = RoundedCornerShape(20.dp),
                 color = if (isListening) Color(0xFFE53935) else MaterialTheme.colorScheme.primaryContainer,
                 contentColor = if (isListening) Color.White else MaterialTheme.colorScheme.onPrimaryContainer,
                 border = if (isListening) BorderStroke(2.dp, Color.Red) else null
             ) {
                 Row(
-                    modifier = Modifier.padding(vertical = 16.dp, horizontal = 20.dp),
+                    modifier = Modifier.padding(vertical = 14.dp, horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
@@ -655,14 +693,16 @@ fun MemoEditBottomSheet(
                         imageVector = Icons.Default.Mic,
                         contentDescription = "말로 쓰기",
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(32.dp)
                             .scale(if (isListening) micScale else 1f)
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = if (isListening) "🔴 말씀하세요... 듣고 있어요" else "🎤 말로 편하게 말하기",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -682,18 +722,18 @@ fun MemoEditBottomSheet(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Default.NotificationsActive,
                                 contentDescription = null,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "⏰ AI 감지 알림 예정: $timeText",
-                                fontSize = 17.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -701,37 +741,47 @@ fun MemoEditBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // 카테고리 선택 칩 그룹
-            Text(text = "카테고리 선택", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(CATEGORY_LIST) { category ->
+            // 카테고리 선택 칩 그룹 (가로 스크롤 보장)
+            Text(text = "카테고리 선택", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                CATEGORY_LIST.forEach { category ->
                     val isSelected = selectedCategory == category
                     FilterChip(
                         selected = isSelected,
                         onClick = { selectedCategory = category },
-                        label = { Text(text = category, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+                        label = { Text(text = category, fontSize = 15.sp, fontWeight = FontWeight.Bold) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.secondary,
                             selectedLabelColor = MaterialTheme.colorScheme.onSecondary
                         ),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.defaultMinSize(minHeight = 40.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // 제목 입력
+            // 제목 입력 (고정 높이 제거)
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("제목", fontSize = 20.sp) },
-                placeholder = { Text("메모 제목을 입력하세요", fontSize = 20.sp) },
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = TextStyle(fontSize = 24.sp, fontWeight = FontWeight.Bold),
+                label = { Text("제목", fontSize = 18.sp) },
+                placeholder = {
+                    Text("메모 제목을 입력하세요", fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 56.dp),
+                textStyle = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold),
                 singleLine = true,
                 shape = RoundedCornerShape(16.dp),
                 trailingIcon = {
@@ -747,18 +797,19 @@ fun MemoEditBottomSheet(
                 )
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // 내용 입력
+            // 내용 및 할 일 입력 (고정 높이 제거, minLines 가변 높이 및 스크롤로 짓눌림 완벽 방지)
             OutlinedTextField(
                 value = content,
                 onValueChange = { content = it },
-                label = { Text("내용 및 할 일", fontSize = 20.sp) },
-                placeholder = { Text("내용을 입력하세요...", fontSize = 20.sp) },
+                label = { Text("내용 및 할 일", fontSize = 18.sp) },
+                placeholder = { Text("내용을 입력하세요...", fontSize = 18.sp) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp),
-                textStyle = TextStyle(fontSize = 22.sp, lineHeight = 32.sp),
+                    .defaultMinSize(minHeight = 120.dp),
+                textStyle = TextStyle(fontSize = 20.sp, lineHeight = 28.sp),
+                minLines = 4,
                 shape = RoundedCornerShape(16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -766,18 +817,18 @@ fun MemoEditBottomSheet(
                 )
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // 저장 버튼
+            // 저장 버튼 (defaultMinSize 적용)
             Button(
-                onClick = { 
+                onClick = {
                     sttManager.stopListening()
-                    onSave(title, content, selectedCategory, targetTimeMillis) 
+                    onSave(title, content, selectedCategory, targetTimeMillis)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(62.dp),
-                shape = RoundedCornerShape(20.dp),
+                    .defaultMinSize(minHeight = 56.dp),
+                shape = RoundedCornerShape(18.dp),
                 enabled = title.isNotBlank() || content.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -787,7 +838,7 @@ fun MemoEditBottomSheet(
             ) {
                 Text(
                     text = if (memo == null) "메모 저장하기" else "수정 완료",
-                    fontSize = 24.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
