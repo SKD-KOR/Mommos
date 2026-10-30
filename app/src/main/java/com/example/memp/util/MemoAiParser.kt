@@ -103,10 +103,10 @@ object MemoAiParser {
     private fun extractTodoList(text: String): List<String> {
         // 날짜/시간 수식어 및 시간 조사("쯤에", "경에", "에", "반에" 등) 완전 제거
         val timeCleaned = text.replace(
-            Regex("(오늘|내일|모레|다음\\s*주|이번\\s*주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|\\d{1,2}월\\s*\\d{1,2}일)?\\s*(오전|오후|아침|점심|저녁|밤|새벽|낮)?\\s*\\d{1,2}\\s*시\\s*(?:\\d{1,2}\\s*분|반)?\\s*(쯤에|경에|정도에|쯤|경|정도|에|날에)?"),
+            Regex("(오늘|내일|모레|다음\\s*주|이번\\s*주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일|\\d{1,2}\\s*일)?\\s*(오전|오후|아침|점심|저녁|밤|새벽|낮)?\\s*\\d{1,2}\\s*시\\s*(?:\\d{1,2}\\s*분|반)?\\s*(쯤에|경에|정도에|쯤|경|정도|에|날에)?"),
             ""
         ).replace(
-            Regex("^(오늘|내일|모레|다음\\s*주|이번\\s*주)\\s*(에|날에)?"),
+            Regex("^(오늘|내일|모레|다음\\s*주|이번\\s*주|\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일|\\d{1,2}\\s*일)\\s*(에|날에)?"),
             ""
         ).trim()
 
@@ -175,46 +175,81 @@ object MemoAiParser {
         var hasExplicitDate = false
         var hasTime = false
 
-        // 날짜 파싱
-        when {
-            text.contains("오늘") -> {
+        // 1. 명시적 월/일 날짜 파싱 (예: "11월 9일", "5월 5일", "15일")
+        val monthDayRegex = Regex("(?:(\\d{1,2})\\s*월\\s*)?(\\d{1,2})\\s*일")
+        val monthDayMatch = monthDayRegex.find(text)
+
+        if (monthDayMatch != null) {
+            val monthGroup = monthDayMatch.groupValues[1]
+            val dayGroup = monthDayMatch.groupValues[2]
+
+            val parsedDay = dayGroup.toIntOrNull()
+            if (parsedDay != null && parsedDay in 1..31) {
                 hasExplicitDate = true
-            }
-            text.contains("내일") -> {
-                cal.add(Calendar.DAY_OF_YEAR, 1)
-                hasExplicitDate = true
-            }
-            text.contains("모레") -> {
-                cal.add(Calendar.DAY_OF_YEAR, 2)
-                hasExplicitDate = true
-            }
-            text.contains("다음 주") -> {
-                cal.add(Calendar.WEEK_OF_YEAR, 1)
-                hasExplicitDate = true
-                val dayOfWeek = parseDayOfWeek(text)
-                if (dayOfWeek != null) {
-                    cal.set(Calendar.DAY_OF_WEEK, dayOfWeek)
-                }
-            }
-            text.contains("이번 주") -> {
-                hasExplicitDate = true
-                val dayOfWeek = parseDayOfWeek(text)
-                if (dayOfWeek != null) {
-                    cal.set(Calendar.DAY_OF_WEEK, dayOfWeek)
-                }
-            }
-            else -> {
-                val dayOfWeek = parseDayOfWeek(text)
-                if (dayOfWeek != null) {
-                    hasExplicitDate = true
-                    while (cal.get(Calendar.DAY_OF_WEEK) != dayOfWeek) {
-                        cal.add(Calendar.DAY_OF_YEAR, 1)
+                val now = Calendar.getInstance()
+
+                if (monthGroup.isNotBlank()) {
+                    val parsedMonth = monthGroup.toIntOrNull()
+                    if (parsedMonth != null && parsedMonth in 1..12) {
+                        cal.set(Calendar.MONTH, parsedMonth - 1)
+                        cal.set(Calendar.DAY_OF_MONTH, parsedDay)
+
+                        if (cal.before(now) && !isSameDay(cal, now)) {
+                            cal.add(Calendar.YEAR, 1)
+                        }
+                    }
+                } else {
+                    // 월 없이 "9일"만 말한 경우
+                    cal.set(Calendar.DAY_OF_MONTH, parsedDay)
+                    if (parsedDay < now.get(Calendar.DAY_OF_MONTH)) {
+                        cal.add(Calendar.MONTH, 1)
                     }
                 }
             }
         }
 
-        // 시간 파싱 (예: "10시 반", "3시 36분", "오전 10시", "오후 3시 30분")
+        // 2. 상대적 날짜 파싱 ("오늘", "내일", "모레", "다음 주", "이번 주", 요일)
+        if (!hasExplicitDate) {
+            when {
+                text.contains("오늘") -> {
+                    hasExplicitDate = true
+                }
+                text.contains("내일") -> {
+                    cal.add(Calendar.DAY_OF_YEAR, 1)
+                    hasExplicitDate = true
+                }
+                text.contains("모레") -> {
+                    cal.add(Calendar.DAY_OF_YEAR, 2)
+                    hasExplicitDate = true
+                }
+                text.contains("다음 주") -> {
+                    cal.add(Calendar.WEEK_OF_YEAR, 1)
+                    hasExplicitDate = true
+                    val dayOfWeek = parseDayOfWeek(text)
+                    if (dayOfWeek != null) {
+                        cal.set(Calendar.DAY_OF_WEEK, dayOfWeek)
+                    }
+                }
+                text.contains("이번 주") -> {
+                    hasExplicitDate = true
+                    val dayOfWeek = parseDayOfWeek(text)
+                    if (dayOfWeek != null) {
+                        cal.set(Calendar.DAY_OF_WEEK, dayOfWeek)
+                    }
+                }
+                else -> {
+                    val dayOfWeek = parseDayOfWeek(text)
+                    if (dayOfWeek != null) {
+                        hasExplicitDate = true
+                        while (cal.get(Calendar.DAY_OF_WEEK) != dayOfWeek) {
+                            cal.add(Calendar.DAY_OF_YEAR, 1)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. 시간 파싱 (예: "10시 반", "오후 3시", "오후 3시 30분")
         val timeRegex = Regex("(\\d{1,2})\\s*시\\s*(?:(\\d{1,2})\\s*분|반)?")
         val match = timeRegex.find(text)
         if (match != null) {
